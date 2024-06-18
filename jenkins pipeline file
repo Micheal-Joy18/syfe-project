@@ -1,0 +1,72 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION = 'us-west-2'
+        CLUSTER_NAME = 'my-cluster'
+        NODE_GROUP_NAME = 'standard-workers'
+        NODE_TYPE = 't3.medium'
+        NODES = '3'
+        MIN_NODES = '1'
+        MAX_NODES = '4'
+        STORAGE_CLASS = 'ebs-sc'
+        PVC_NAME = 'ebs-pvc'
+        PVC_SIZE = '10Gi'
+        HELM_RELEASE_NAME = 'my-wordpress'
+        HELM_CHART = 'bitnami/wordpress'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                git 'https://github.com/your-username/your-repository.git'
+            }
+        }
+
+        stage('Setup EKS Cluster') {
+            steps {
+                script {
+                    sh """
+                    eksctl create cluster --name $CLUSTER_NAME --region $AWS_REGION --nodegroup-name $NODE_GROUP_NAME --node-type $NODE_TYPE --nodes $NODES --nodes-min $MIN_NODES --nodes-max $MAX_NODES --managed
+                    aws eks --region $AWS_REGION update-kubeconfig --name $CLUSTER_NAME
+                    """
+                }
+            }
+        }
+
+        stage('Apply Kubernetes Manifests') {
+            steps {
+                script {
+                    sh """
+                    kubectl apply -f k8s/storageclass.yaml
+                    kubectl apply -f k8s/pvc.yaml
+                    kubectl apply -f k8s/wordpress-deployment.yaml
+                    """
+                }
+            }
+        }
+
+        stage('Deploy with Helm') {
+            steps {
+                script {
+                    sh """
+                    helm repo add bitnami https://charts.bitnami.com/bitnami
+                    helm repo update
+                    helm install $HELM_RELEASE_NAME $HELM_CHART --set persistence.storageClass=$STORAGE_CLASS --set persistence.size=$PVC_SIZE
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            script {
+                sh """
+                helm delete $HELM_RELEASE_NAME || true
+                eksctl delete cluster --name $CLUSTER_NAME || true
+                """
+            }
+        }
+    }
+}
