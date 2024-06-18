@@ -1,0 +1,13 @@
+FROM openresty/openresty:alpine
+RUN apk add --no-cache \
+    gcc g++ make \
+    linux-headers \
+    pcre-dev zlib-dev openssl-dev
+RUN ./configure --prefix=/opt/openresty \
+    --with-pcre-jit \
+    --with-ipv6 \
+    --without-http_redis2_module \
+    --with-http_iconv_module \
+    --with-http_postgres_module \
+    -j8 && make && make install
+
